@@ -11,6 +11,7 @@
 #include "source/common/common/utility.h"
 #include "source/common/network/address_impl.h"
 #include "source/extensions/common/proxy_protocol/proxy_protocol_header.h"
+#include "source/common/protobuf/utility.h"
 
 using envoy::config::core::v3::ProxyProtocolConfig;
 using envoy::config::core::v3::ProxyProtocolConfig_Version;
@@ -23,7 +24,8 @@ namespace ProxyProtocol {
 
 UpstreamProxyProtocolSocket::UpstreamProxyProtocolSocket(
     Network::TransportSocketPtr&& transport_socket,
-    Network::TransportSocketOptionsConstSharedPtr options, ProxyProtocolConfig config,
+    Network::TransportSocketOptionsConstSharedPtr options,
+    ProxyProtocolConfig config,
     const UpstreamProxyProtocolStats& stats)
     : PassthroughSocket(std::move(transport_socket)), options_(options), version_(config.version()),
       stats_(stats),
@@ -93,7 +95,7 @@ void UpstreamProxyProtocolSocket::generateHeaderV2() {
   } else {
     const auto options = options_->proxyProtocolOptions().value();
     if (!Common::ProxyProtocol::generateV2Header(options, header_buffer_, pass_all_tlvs_,
-                                                 pass_through_tlvs_)) {
+                                                 pass_through_tlvs_, buildCustomTLVs())) {
       // There is a warn log in generateV2Header method.
       stats_.v2_tlvs_exceed_max_length_.inc();
     }
@@ -151,6 +153,7 @@ Network::TransportSocketPtr UpstreamProxyProtocolSocketFactory::createTransportS
                                                        stats_);
 }
 
+// TODO: Is this relevant for custom TLVs being injected from host metadata?
 void UpstreamProxyProtocolSocketFactory::hashKey(
     std::vector<uint8_t>& key, Network::TransportSocketOptionsConstSharedPtr options) const {
   PassthroughFactory::hashKey(key, options);
@@ -163,6 +166,69 @@ void UpstreamProxyProtocolSocketFactory::hashKey(
           StringUtil::CaseInsensitiveHash()(proxy_protocol_options.value().asStringForHash()), key);
     }
   }
+}
+
+std::unordered_map<uint8_t, std::vector<unsigned char>> UpstreamProxyProtocolSocket::buildCustomTLVs() {
+  std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs;
+
+  const auto& upstream_info = callbacks_->connection().streamInfo().upstreamInfo();
+  if (upstream_info == nullptr) {
+    return custom_tlvs;
+  }
+
+  Upstream::HostDescriptionConstSharedPtr host = upstream_info->upstreamHost();
+  if (host == nullptr) {
+    return custom_tlvs;
+  }
+
+  auto metadata = host->metadata();
+  if (metadata == nullptr) {
+    return custom_tlvs;
+  }
+
+  const auto& filter_metadata = metadata->filter_metadata();
+  const auto filter_it = filter_metadata.find("envoy.transport_sockets.proxy_protocol");
+  if (filter_it == filter_metadata.end()) {
+    ENVOY_LOG(trace, "no custom TLVs found in upstream host metadata");
+    return custom_tlvs;
+  }
+
+  // Construct the map from the metadata.
+  const auto& metadata_struct = filter_it->second;
+  for (const auto& field : metadata_struct.fields()) {
+    const std::string& key = field.first;
+    const auto& value = field.second;
+
+    // Assume the metadata key is the TLV type in hex format (e.g., "0xD3").
+    uint8_t tlv_type;
+    try {
+      tlv_type = static_cast<uint8_t>(std::stoi(key, nullptr, 16));
+    } catch (const std::exception&) {
+      continue; // Skip if the key is not a valid hex number.
+    }
+    if (custom_tlvs.contains(tlv_type)) {
+      // prevent duplicate TLV keys from being added.
+      continue;
+    }
+
+    // Only process string values.
+    if (value.kind_case() != ProtobufWkt::Value::kStringValue) {
+      continue;
+    }
+
+    const std::string& string_value = value.string_value();
+    if (string_value.empty()) {
+      continue;
+    }
+    std::string sanitised_value = MessageUtil::sanitizeUtf8String(string_value);
+    if (sanitised_value.empty()) {
+      continue;
+    }
+    std::vector<unsigned char> value_bytes(sanitised_value.begin(), sanitised_value.end());
+    custom_tlvs[tlv_type] = value_bytes;
+  }
+
+  return custom_tlvs;
 }
 
 } // namespace ProxyProtocol
