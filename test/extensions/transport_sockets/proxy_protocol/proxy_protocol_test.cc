@@ -6,6 +6,9 @@
 #include "source/common/network/transport_socket_options_impl.h"
 #include "source/extensions/common/proxy_protocol/proxy_protocol_header.h"
 #include "source/extensions/transport_sockets/proxy_protocol/proxy_protocol.h"
+#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.h"
+#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.validate.h"
+
 
 #include "test/mocks/buffer/mocks.h"
 #include "test/mocks/network/io_handle.h"
@@ -712,21 +715,25 @@ TEST_F(ProxyProtocolTest, V2CustomTLVsFromHostMetadata) {
   transport_callbacks_.connection_.stream_info_.downstream_connection_info_provider_
       ->setRemoteAddress(*Network::Utility::resolveUrl("tcp://[e:b:c:f::]:8080"));
 
-  std::shared_ptr<NiceMock<Envoy::Upstream::MockHostDescription>> host(
-		new NiceMock<Envoy::Upstream::MockHostDescription>());
+  auto host = std::make_shared<NiceMock<Upstream::MockHostDescription>>();
   auto metadata = std::make_shared<envoy::config::core::v3::Metadata>();
-	ProtobufWkt::Struct metadata_struct;
-	auto* fields = metadata_struct.mutable_fields();
-	(*fields)["0xD3"].set_string_value("cluster-2");
-  metadata->mutable_filter_metadata()->insert(
-      Protobuf::MapPair<std::string, ProtobufWkt::Struct>(
-          Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL, metadata_struct));
-	EXPECT_CALL(*host, metadata()).WillRepeatedly(Return(metadata));
+  const std::string metadata_key =
+      Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL;
+
+  envoy::extensions::transport_sockets::proxy_protocol::v3::CustomTlvMetadata custom_tlv_metadata;
+  auto entry = custom_tlv_metadata.add_entries();
+  entry->set_type(0x96);
+  entry->set_value("moredata");
+
+  ProtobufWkt::Any typed_metadata;
+  typed_metadata.PackFrom(custom_tlv_metadata);
+  metadata->mutable_typed_filter_metadata()->emplace(std::make_pair(metadata_key, typed_metadata));
+  EXPECT_CALL(*host, metadata()).Times(testing::AnyNumber()).WillRepeatedly(Return(metadata));
 	transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
 
   absl::flat_hash_set<uint8_t> pass_through_tlvs{};
 	std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
-		{0xD3, {'c', 'l', 'u', 's', 't', 'e', 'r', '-', '2'}}
+		{0x96, {'m', 'o', 'r', 'e', 'd', 'a', 't', 'a'}}
   };
 	Buffer::OwnedImpl expected_buff{};
   EXPECT_TRUE(Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, false,
@@ -766,21 +773,25 @@ TEST_F(ProxyProtocolTest, V2CustomAndPassthroughTLVs) {
   transport_callbacks_.connection_.stream_info_.downstream_connection_info_provider_
       ->setRemoteAddress(*Network::Utility::resolveUrl("tcp://[e:b:c:f::]:8080"));
 
-  std::shared_ptr<NiceMock<Envoy::Upstream::MockHostDescription>> host(
-		new NiceMock<Envoy::Upstream::MockHostDescription>());
+  auto host = std::make_shared<NiceMock<Upstream::MockHostDescription>>();
   auto metadata = std::make_shared<envoy::config::core::v3::Metadata>();
-	ProtobufWkt::Struct metadata_struct;
-	auto* fields = metadata_struct.mutable_fields();
-	(*fields)["0xD3"].set_string_value("cluster-2");
-  metadata->mutable_filter_metadata()->insert(
-      Protobuf::MapPair<std::string, ProtobufWkt::Struct>(
-          Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL, metadata_struct));
-	EXPECT_CALL(*host, metadata()).WillRepeatedly(Return(metadata));
+  const std::string metadata_key =
+      Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL;
+
+  envoy::extensions::transport_sockets::proxy_protocol::v3::CustomTlvMetadata custom_tlv_metadata;
+  auto entry = custom_tlv_metadata.add_entries();
+  entry->set_type(0x96);
+  entry->set_value("moredata");
+
+  ProtobufWkt::Any typed_metadata;
+  typed_metadata.PackFrom(custom_tlv_metadata);
+  metadata->mutable_typed_filter_metadata()->emplace(std::make_pair(metadata_key, typed_metadata));
+  EXPECT_CALL(*host, metadata()).Times(testing::AnyNumber()).WillRepeatedly(Return(metadata));
 	transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
 
   absl::flat_hash_set<uint8_t> pass_through_tlvs{0x5};
 	std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
-		{0xD3, {'c', 'l', 'u', 's', 't', 'e', 'r', '-', '2'}}
+		{0x96, {'m', 'o', 'r', 'e', 'd', 'a', 't', 'a'}}
   };
 	Buffer::OwnedImpl expected_buff{};
   EXPECT_TRUE(Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, true,
@@ -789,62 +800,6 @@ TEST_F(ProxyProtocolTest, V2CustomAndPassthroughTLVs) {
   ProxyProtocolConfig config;
   config.set_version(ProxyProtocolConfig_Version::ProxyProtocolConfig_Version_V2);
 	config.mutable_pass_through_tlvs()->set_match_type(ProxyProtocolPassThroughTLVs::INCLUDE_ALL);
-  initialize(config, socket_options);
-
-  EXPECT_CALL(io_handle_, write(BufferStringEqual(expected_buff.toString())))
-      .WillOnce(Invoke([&](Buffer::Instance& buffer) -> Api::IoCallUint64Result {
-        auto length = buffer.length();
-        buffer.drain(length);
-        return {length, Api::IoError::none()};
-      }));
-  auto msg = Buffer::OwnedImpl("some data");
-  EXPECT_CALL(*inner_socket_, doWrite(BufferEqual(&msg), false));
-
-  auto resp = proxy_protocol_socket_->doWrite(msg, false);
-  EXPECT_EQ(resp.bytes_processed_, expected_buff.length());
-}
-
-// Test injects V2 PROXY protocol with valid custom TLVs. Invalid TLVs are ignored.
-TEST_F(ProxyProtocolTest, V2CustomTLVInvalidMetadata) {
-  auto src_addr =
-      Network::Address::InstanceConstSharedPtr(new Network::Address::Ipv6Instance("1:2:3::4", 8));
-  auto dst_addr = Network::Address::InstanceConstSharedPtr(
-      new Network::Address::Ipv6Instance("1:100:200:3::", 2));
-  Network::ProxyProtocolTLVVector tlv_vector{Network::ProxyProtocolTLV{0x5, {'a', 'b', 'c'}}};
-  Network::ProxyProtocolData proxy_proto_data{src_addr, dst_addr, tlv_vector};
-  Network::TransportSocketOptionsConstSharedPtr socket_options =
-      std::make_shared<Network::TransportSocketOptionsImpl>(
-          "", std::vector<std::string>{}, std::vector<std::string>{}, std::vector<std::string>{},
-          absl::optional<Network::ProxyProtocolData>(proxy_proto_data));
-  transport_callbacks_.connection_.stream_info_.downstream_connection_info_provider_
-      ->setLocalAddress(*Network::Utility::resolveUrl("tcp://[1:100:200:3::]:50000"));
-  transport_callbacks_.connection_.stream_info_.downstream_connection_info_provider_
-      ->setRemoteAddress(*Network::Utility::resolveUrl("tcp://[e:b:c:f::]:8080"));
-
-  std::shared_ptr<NiceMock<Envoy::Upstream::MockHostDescription>> host(
-		new NiceMock<Envoy::Upstream::MockHostDescription>());
-  auto metadata = std::make_shared<envoy::config::core::v3::Metadata>();
-	ProtobufWkt::Struct metadata_struct;
-	auto* fields = metadata_struct.mutable_fields();
-	(*fields)["512"].set_bool_value(true); // ignored as the key can't be casted to a uint_8 value
-	(*fields)["0xD3"].set_bool_value(true); // ignored as the value is not a string
-	(*fields)["0xD4"].set_string_value("cluster-2"); // valid key with string value
-  metadata->mutable_filter_metadata()->insert(
-      Protobuf::MapPair<std::string, ProtobufWkt::Struct>(
-          Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL, metadata_struct));
-	EXPECT_CALL(*host, metadata()).WillRepeatedly(Return(metadata));
-	transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
-
-  absl::flat_hash_set<uint8_t> pass_through_tlvs{};
-	std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
-		{0xD4, {'c', 'l', 'u', 's', 't', 'e', 'r', '-', '2'}} // only expected TLV
-  };
-	Buffer::OwnedImpl expected_buff{};
-  EXPECT_TRUE(Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, false,
-																											pass_through_tlvs, custom_tlvs));
-
-  ProxyProtocolConfig config;
-  config.set_version(ProxyProtocolConfig_Version::ProxyProtocolConfig_Version_V2);
   initialize(config, socket_options);
 
   EXPECT_CALL(io_handle_, write(BufferStringEqual(expected_buff.toString())))

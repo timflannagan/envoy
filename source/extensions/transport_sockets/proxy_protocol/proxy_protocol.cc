@@ -13,6 +13,8 @@
 #include "source/common/network/address_impl.h"
 #include "source/common/protobuf/utility.h"
 #include "source/extensions/common/proxy_protocol/proxy_protocol_header.h"
+#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.h"
+#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.validate.h"
 
 using envoy::config::core::v3::ProxyProtocolConfig;
 using envoy::config::core::v3::ProxyProtocolConfig_Version;
@@ -186,46 +188,21 @@ std::unordered_map<uint8_t, std::vector<unsigned char>> UpstreamProxyProtocolSoc
     return custom_tlvs;
   }
 
-  const auto filter_it = metadata->filter_metadata().find(
+  const auto filter_it = metadata->typed_filter_metadata().find(
     Envoy::Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL);
-  if (filter_it == metadata->filter_metadata().end()) {
+  if (filter_it == metadata->typed_filter_metadata().end()) {
     ENVOY_LOG(trace, "no custom TLVs found in upstream host metadata");
     return custom_tlvs;
   }
 
-  // Construct the map from the metadata.
-  const auto& metadata_struct = filter_it->second;
-  for (const auto& field : metadata_struct.fields()) {
-    const std::string& key = field.first;
-    const auto& value = field.second;
-
-    // Assume the metadata key is the TLV type in hex format (e.g., "0xD3").
-    uint8_t tlv_type;
-    try {
-      tlv_type = static_cast<uint8_t>(std::stoi(key, nullptr, 16));
-    } catch (const std::exception&) {
-      continue; // Skip if the key is not a valid hex number.
-    }
-    if (custom_tlvs.contains(tlv_type)) {
-      // prevent duplicate TLV keys from being added.
-      continue;
-    }
-
-    // Only process string values.
-    if (value.kind_case() != ProtobufWkt::Value::kStringValue) {
-      continue;
-    }
-
-    const std::string& string_value = value.string_value();
-    if (string_value.empty()) {
-      continue;
-    }
-    std::string sanitised_value = MessageUtil::sanitizeUtf8String(string_value);
-    if (sanitised_value.empty()) {
-      continue;
-    }
-    std::vector<unsigned char> value_bytes(sanitised_value.begin(), sanitised_value.end());
-    custom_tlvs[tlv_type] = value_bytes;
+  envoy::extensions::transport_sockets::proxy_protocol::v3::CustomTlvMetadata custom_metadata;
+  if (!filter_it->second.UnpackTo(&custom_metadata)) {
+    ENVOY_LOG(warn, "failed to unpack custom TLVs from upstream host metadata");
+    return custom_tlvs;
+  }
+  // TODO: Prevent empty values from being added to the map? Is that possible with protobuf validation?
+  for (const auto& tlv : custom_metadata.entries()) {
+    custom_tlvs[tlv.type()] = std::vector<unsigned char>(tlv.value().begin(), tlv.value().end());
   }
 
   return custom_tlvs;

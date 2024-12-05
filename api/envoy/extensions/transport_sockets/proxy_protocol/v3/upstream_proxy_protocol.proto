@@ -17,6 +17,19 @@ option (udpa.annotations.file_status).package_version_status = ACTIVE;
 // [#protodoc-title: Upstream Proxy Protocol]
 // [#extension: envoy.transport_sockets.upstream_proxy_protocol]
 
+message CustomTlvMetadata {
+  repeated TlvEntry entries = 1;
+}
+
+message TlvEntry {
+  // type is the type of the TLV. The PP2 protocol expects this type to be a uint8_t.
+  uint32 type = 1 [(validate.rules).uint32 = {lt: 256}];
+  // value is the value of the TLV.
+  //
+  // TODO(tim): should this be a bytes field instead?
+  string value = 2 [(validate.rules).string = {min_len: 1}];
+}
+
 // Configuration for PROXY protocol socket
 message ProxyProtocolUpstreamTransport {
   // The PROXY protocol settings
@@ -33,4 +46,8 @@ message ProxyProtocolUpstreamTransport {
   // If true, all the TLVs are encoded in the connection pool key.
   // [#not-implemented-hide:]
   bool tlv_as_pool_key = 4;
+
+  // Custom TLV metadata to be sent in the upstream PROXY protocol header.
+  // [#not-implemented-hide:]
+  CustomTlvMetadata custom_tlv_metadata = 5;
 }

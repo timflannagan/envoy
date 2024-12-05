@@ -474,16 +474,17 @@ public:
                                 ->mutable_lb_endpoints(0)
                                 ->mutable_metadata();
 
-        ProtobufWkt::Struct metadata_struct;
-        auto* fields = metadata_struct.mutable_fields();
+        envoy::extensions::transport_sockets::proxy_protocol::v3::CustomTlvMetadata custom_tlv_metadata;
         for (const auto& [type, value] : custom_tlvs_) {
-            ProtobufWkt::Value metadata_value;
-            metadata_value.set_string_value(value);
-            (*fields)[absl::StrFormat("0x%02X", type)] = metadata_value;
+          auto* tlv_entry = custom_tlv_metadata.add_entries();
+          tlv_entry->set_type(type);
+          tlv_entry->set_value(value);
         }
-        metadata->mutable_filter_metadata()->insert(
-        Protobuf::MapPair<std::string, ProtobufWkt::Struct>(
-            Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL, metadata_struct));
+        ProtobufWkt::Any typed_metadata;
+        typed_metadata.PackFrom(custom_tlv_metadata);
+        const std::string metadata_key =
+          Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL;
+        metadata->mutable_typed_filter_metadata()->emplace(std::make_pair(metadata_key, typed_metadata));
       }
 
       envoy::extensions::transport_sockets::proxy_protocol::v3::ProxyProtocolUpstreamTransport
@@ -706,7 +707,7 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2ProxyProtocolPassWithTypeLocal) {
 }
 
 TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithCustomMetadata) {
-  setup(false, {}, {}, {{0x96, "foo"}});
+  setup(false, {}, {}, {{0x96, "foo"}, {0x97, "bar"}});
   initialize();
 
   IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("listener_0"));
@@ -722,14 +723,18 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithCustomMetadat
     Buffer::OwnedImpl buffer(v2_protocol, sizeof(v2_protocol));
     ASSERT_TRUE(tcp_client->write(buffer.toString()));
     ASSERT_TRUE(fake_upstreams_[0]->waitForRawConnection(fake_upstream_connection_));
-    ASSERT_TRUE(fake_upstream_connection_->waitForData(36, &observed_data)); // 30 inbound size + 6 for custom TLV.
+    ASSERT_TRUE(fake_upstream_connection_->waitForData(42, &observed_data)); // 30 inbound size + 12 for custom TLVs.
 
     // Verify the custom TLV was injected from filter metadata.
-    EXPECT_EQ(observed_data.size(), 36);
+    EXPECT_EQ(observed_data.size(), 42);
     EXPECT_EQ(static_cast<uint8_t>(observed_data[28]), 0x96);
     EXPECT_EQ(static_cast<uint8_t>(observed_data[29]), 0x00);
     EXPECT_EQ(static_cast<uint8_t>(observed_data[30]), 0x03);
     EXPECT_EQ(observed_data.substr(31, 3), "foo");
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[34]), 0x97);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[35]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[36]), 0x03);
+    EXPECT_EQ(observed_data.substr(37, 3), "bar");
   } else if (GetParam() == Envoy::Network::Address::IpVersion::v6) {
     // Expected downstream proxy protocol header (IPv6).
     const uint8_t v2_protocol_ipv6[] = {
@@ -741,14 +746,18 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithCustomMetadat
     Buffer::OwnedImpl buffer(v2_protocol_ipv6, sizeof(v2_protocol_ipv6));
     ASSERT_TRUE(tcp_client->write(buffer.toString()));
     ASSERT_TRUE(fake_upstreams_[0]->waitForRawConnection(fake_upstream_connection_));
-    ASSERT_TRUE(fake_upstream_connection_->waitForData(58, &observed_data)); // 52 inbound size + 6 for custom TLV.
+    ASSERT_TRUE(fake_upstream_connection_->waitForData(64, &observed_data)); // 52 inbound size + 12 for custom TLVs.
 
     // Verify the custom TLV was injected from filter metadata.
-    EXPECT_EQ(observed_data.size(), 58);
+    EXPECT_EQ(observed_data.size(), 64);
     EXPECT_EQ(static_cast<uint8_t>(observed_data[52]), 0x96);
     EXPECT_EQ(static_cast<uint8_t>(observed_data[53]), 0x00);
     EXPECT_EQ(static_cast<uint8_t>(observed_data[54]), 0x03);
     EXPECT_EQ(observed_data.substr(55, 3), "foo");
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[58]), 0x97);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[59]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[60]), 0x03);
+    EXPECT_EQ(observed_data.substr(61, 3), "bar");
   }
 
   tcp_client->close();

@@ -39,5 +39,6 @@ envoy_cc_library(
         "//source/extensions/common/proxy_protocol:proxy_protocol_header_lib",
         "//source/extensions/transport_sockets/common:passthrough_lib",
         "@envoy_api//envoy/config/core/v3:pkg_cc_proto",
+        "@envoy_api//envoy/extensions/transport_sockets/proxy_protocol/v3:pkg_cc_proto",
     ],
 )
