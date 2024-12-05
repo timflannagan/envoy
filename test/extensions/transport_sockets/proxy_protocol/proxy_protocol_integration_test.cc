@@ -764,5 +764,109 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithCustomMetadat
   ASSERT_TRUE(fake_upstream_connection_->waitForDisconnect());
 }
 
+TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithPassthroughAndCustomTLVs) {
+  // Setup with passthrough TLVs (0x05, 0x06) and custom TLVs (0x96, 0x97).
+  setup(true, {}, {}, {{0x96, "foo"}, {0x97, "bar"}});
+  initialize();
+
+  IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("listener_0"));
+  std::string observed_data;
+
+  if (GetParam() == Envoy::Network::Address::IpVersion::v4) {
+    // 2 TLVs are included:
+    // 0x05, 0x00, 0x02, 0x06, 0x07
+    // 0x06, 0x00, 0x02, 0x11, 0x12
+    const uint8_t v2_protocol[] = {0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49,
+                                   0x54, 0x0a, 0x21, 0x11, 0x00, 0x16, 0x7f, 0x00, 0x00, 0x01,
+                                   0x7f, 0x00, 0x00, 0x01, 0x03, 0x05, 0x02, 0x01,
+                                   0x05, 0x00, 0x02, 0x06, 0x07, // Passthrough TLV 0x05
+                                   0x06, 0x00, 0x02, 0x11, 0x12, // Passthrough TLV 0x06
+    };
+    Buffer::OwnedImpl buffer(v2_protocol, sizeof(v2_protocol));
+    ASSERT_TRUE(tcp_client->write(buffer.toString()));
+    ASSERT_TRUE(fake_upstreams_[0]->waitForRawConnection(fake_upstream_connection_));
+    // Expected data size: 28 header + 10 pass through TLVs + 12 custom TLVs = 50 bytes
+    ASSERT_TRUE(fake_upstream_connection_->waitForData(50, &observed_data));
+    EXPECT_EQ(observed_data.size(), 50);
+
+    size_t offset = 28; // Start after the header
+    // Verify custom TLV 0x96. Note: we insert custom TLVs before passthrough TLVs in the header.
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset]), 0x96);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 1]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 2]), 0x03);
+    EXPECT_EQ(observed_data.substr(offset + 3, 3), "foo");
+    offset += 6;
+    // Verify custom TLV 0x97
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset]), 0x97);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 1]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 2]), 0x03);
+    EXPECT_EQ(observed_data.substr(offset + 3, 3), "bar");
+    offset += 6;
+    // Verify passthrough TLV 0x05
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset]), 0x05);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 1]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 2]), 0x02);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 3]), 0x06);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 4]), 0x07);
+    offset += 5;
+    // Verify passthrough TLV 0x06
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset]), 0x06);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 1]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 2]), 0x02);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 3]), 0x11);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 4]), 0x12);
+    offset += 5;
+  } else if (GetParam() == Envoy::Network::Address::IpVersion::v6) {
+    // 2 TLVs are included:
+    // 0x05, 0x00, 0x02, 0x06, 0x07
+    // 0x06, 0x00, 0x02, 0x09, 0x0A
+    const uint8_t v2_protocol_ipv6[] = {
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a, 0x21,
+        0x21, 0x00, 0x2E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+        0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x02,
+        0x05, 0x00, 0x02, 0x06, 0x07,
+        0x06, 0x00, 0x02, 0x09, 0x0A,
+    };
+    Buffer::OwnedImpl buffer(v2_protocol_ipv6, sizeof(v2_protocol_ipv6));
+    ASSERT_TRUE(tcp_client->write(buffer.toString()));
+    ASSERT_TRUE(fake_upstreams_[0]->waitForRawConnection(fake_upstream_connection_));
+    // Expected data size: 52 header + 10 passthrough + 12 custom TLVs = 74 bytes.
+    ASSERT_TRUE(fake_upstream_connection_->waitForData(74, &observed_data));
+    EXPECT_EQ(observed_data.size(), 74);
+
+    size_t offset = 52; // Start after the header
+    // Verify custom TLV 0x96
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset]), 0x96);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 1]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 2]), 0x03);
+    EXPECT_EQ(observed_data.substr(offset + 3, 3), "foo");
+    offset += 6;
+    // Verify custom TLV 0x97
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset]), 0x97);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 1]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 2]), 0x03);
+    EXPECT_EQ(observed_data.substr(offset + 3, 3), "bar");
+    offset += 6;
+    // Verify passthrough TLV 0x05
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset]), 0x05);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 1]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 2]), 0x02);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 3]), 0x06);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 4]), 0x07);
+    offset += 5;
+    // Verify passthrough TLV 0x06
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset]), 0x06);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 1]), 0x00);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 2]), 0x02);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 3]), 0x09);
+    EXPECT_EQ(static_cast<uint8_t>(observed_data[offset + 4]), 0x0A);
+    offset += 5;
+  }
+
+  tcp_client->close();
+  ASSERT_TRUE(fake_upstream_connection_->waitForDisconnect());
+}
+
 } // namespace
 } // namespace Envoy
