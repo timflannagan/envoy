@@ -720,7 +720,7 @@ TEST_F(ProxyProtocolTest, V2CustomTLVsFromHostMetadata) {
 	(*fields)["0xD3"].set_string_value("cluster-2");
   metadata->mutable_filter_metadata()->insert(
       Protobuf::MapPair<std::string, ProtobufWkt::Struct>(
-          "envoy.transport_sockets.proxy_protocol", metadata_struct));
+          Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL, metadata_struct));
 	EXPECT_CALL(*host, metadata()).WillRepeatedly(Return(metadata));
 	transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
 
@@ -774,7 +774,7 @@ TEST_F(ProxyProtocolTest, V2CustomAndPassthroughTLVs) {
 	(*fields)["0xD3"].set_string_value("cluster-2");
   metadata->mutable_filter_metadata()->insert(
       Protobuf::MapPair<std::string, ProtobufWkt::Struct>(
-          "envoy.transport_sockets.proxy_protocol", metadata_struct));
+          Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL, metadata_struct));
 	EXPECT_CALL(*host, metadata()).WillRepeatedly(Return(metadata));
 	transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
 
@@ -831,7 +831,7 @@ TEST_F(ProxyProtocolTest, V2CustomTLVInvalidMetadata) {
 	(*fields)["0xD4"].set_string_value("cluster-2"); // valid key with string value
   metadata->mutable_filter_metadata()->insert(
       Protobuf::MapPair<std::string, ProtobufWkt::Struct>(
-          "envoy.transport_sockets.proxy_protocol", metadata_struct));
+          Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL, metadata_struct));
 	EXPECT_CALL(*host, metadata()).WillRepeatedly(Return(metadata));
 	transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
 
@@ -859,8 +859,6 @@ TEST_F(ProxyProtocolTest, V2CustomTLVInvalidMetadata) {
   auto resp = proxy_protocol_socket_->doWrite(msg, false);
   EXPECT_EQ(resp.bytes_processed_, expected_buff.length());
 }
-
-// TODO: Add test case for V1 protocol? I don't see an easy way to do this.
 
 class ProxyProtocolSocketFactoryTest : public testing::Test {
 public:

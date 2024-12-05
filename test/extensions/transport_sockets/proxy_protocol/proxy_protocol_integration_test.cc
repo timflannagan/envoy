@@ -483,7 +483,7 @@ public:
         }
         metadata->mutable_filter_metadata()->insert(
         Protobuf::MapPair<std::string, ProtobufWkt::Struct>(
-            "envoy.transport_sockets.proxy_protocol", metadata_struct)); // FIXME: avoid hardcoding.
+            Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL, metadata_struct));
       }
 
       envoy::extensions::transport_sockets::proxy_protocol::v3::ProxyProtocolUpstreamTransport
@@ -722,10 +722,10 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithCustomMetadat
     Buffer::OwnedImpl buffer(v2_protocol, sizeof(v2_protocol));
     ASSERT_TRUE(tcp_client->write(buffer.toString()));
     ASSERT_TRUE(fake_upstreams_[0]->waitForRawConnection(fake_upstream_connection_));
-    ASSERT_TRUE(fake_upstream_connection_->waitForData(34, &observed_data)); // 28 inbound size + 6 for custom TLV.
+    ASSERT_TRUE(fake_upstream_connection_->waitForData(36, &observed_data)); // 30 inbound size + 6 for custom TLV.
 
     // Verify the custom TLV was injected from filter metadata.
-    EXPECT_EQ(observed_data.size(), 34);
+    EXPECT_EQ(observed_data.size(), 36);
     EXPECT_EQ(static_cast<uint8_t>(observed_data[28]), 0x96);
     EXPECT_EQ(static_cast<uint8_t>(observed_data[29]), 0x00);
     EXPECT_EQ(static_cast<uint8_t>(observed_data[30]), 0x03);

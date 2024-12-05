@@ -192,7 +192,6 @@ public:
   uint64_t bytes_received_{};
   uint64_t bytes_sent_{};
   std::shared_ptr<Network::ConnectionInfoSetterImpl> downstream_connection_info_provider_;
-  Upstream::HostDescriptionConstSharedPtr upstream_host_;
   BytesMeterSharedPtr upstream_bytes_meter_;
   BytesMeterSharedPtr downstream_bytes_meter_;
   Ssl::ConnectionInfoConstSharedPtr downstream_connection_info_;

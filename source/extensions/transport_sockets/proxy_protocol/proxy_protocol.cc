@@ -9,9 +9,10 @@
 #include "source/common/common/hex.h"
 #include "source/common/common/scalar_to_byte_vector.h"
 #include "source/common/common/utility.h"
+#include "source/common/config/well_known_names.h"
 #include "source/common/network/address_impl.h"
-#include "source/extensions/common/proxy_protocol/proxy_protocol_header.h"
 #include "source/common/protobuf/utility.h"
+#include "source/extensions/common/proxy_protocol/proxy_protocol_header.h"
 
 using envoy::config::core::v3::ProxyProtocolConfig;
 using envoy::config::core::v3::ProxyProtocolConfig_Version;
@@ -153,7 +154,6 @@ Network::TransportSocketPtr UpstreamProxyProtocolSocketFactory::createTransportS
                                                        stats_);
 }
 
-// TODO: Is this relevant for custom TLVs being injected from host metadata?
 void UpstreamProxyProtocolSocketFactory::hashKey(
     std::vector<uint8_t>& key, Network::TransportSocketOptionsConstSharedPtr options) const {
   PassthroughFactory::hashKey(key, options);
@@ -186,9 +186,9 @@ std::unordered_map<uint8_t, std::vector<unsigned char>> UpstreamProxyProtocolSoc
     return custom_tlvs;
   }
 
-  const auto& filter_metadata = metadata->filter_metadata();
-  const auto filter_it = filter_metadata.find("envoy.transport_sockets.proxy_protocol");
-  if (filter_it == filter_metadata.end()) {
+  const auto filter_it = metadata->filter_metadata().find(
+    Envoy::Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL);
+  if (filter_it == metadata->filter_metadata().end()) {
     ENVOY_LOG(trace, "no custom TLVs found in upstream host metadata");
     return custom_tlvs;
   }
