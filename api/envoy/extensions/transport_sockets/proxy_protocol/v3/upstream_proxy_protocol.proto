@@ -17,14 +17,18 @@ option (udpa.annotations.file_status).package_version_status = ACTIVE;
 // [#protodoc-title: Upstream Proxy Protocol]
 // [#extension: envoy.transport_sockets.upstream_proxy_protocol]
 
+// Metadata for custom Type-Length-Value (TLV) entries to be sent in the upstream PROXY protocol header.
 message CustomTlvMetadata {
-  repeated TlvEntry entries = 1;
+  // A list of TLV entries. At least one entry must be provided.
+  repeated TlvEntry entries = 1 [(validate.rules).repeated = {min_items: 1}];
 }
 
+// Represents a single Type-Length-Value (TLV) entry.
 message TlvEntry {
-  // type is the type of the TLV. The PP2 protocol expects this type to be a uint8_t.
+  // The type of the TLV. Must be a uint8 (0-255) as per the Proxy Protocol v2 specification.
   uint32 type = 1 [(validate.rules).uint32 = {lt: 256}];
-  // value is the value of the TLV.
+
+  // The value of the TLV. Must be at least one byte long.
   bytes value = 2 [(validate.rules).bytes = {min_len: 1}];
 }
 
