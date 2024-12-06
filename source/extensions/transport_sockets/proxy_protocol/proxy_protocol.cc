@@ -3,6 +3,8 @@
 #include <sstream>
 
 #include "envoy/config/core/v3/proxy_protocol.pb.h"
+#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.h"
+#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.validate.h"
 #include "envoy/network/transport_socket.h"
 
 #include "source/common/buffer/buffer_impl.h"
@@ -13,8 +15,6 @@
 #include "source/common/network/address_impl.h"
 #include "source/common/protobuf/utility.h"
 #include "source/extensions/common/proxy_protocol/proxy_protocol_header.h"
-#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.h"
-#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.validate.h"
 
 using envoy::config::core::v3::ProxyProtocolConfig;
 using envoy::config::core::v3::ProxyProtocolConfig_Version;
@@ -27,8 +27,7 @@ namespace ProxyProtocol {
 
 UpstreamProxyProtocolSocket::UpstreamProxyProtocolSocket(
     Network::TransportSocketPtr&& transport_socket,
-    Network::TransportSocketOptionsConstSharedPtr options,
-    ProxyProtocolConfig config,
+    Network::TransportSocketOptionsConstSharedPtr options, ProxyProtocolConfig config,
     const UpstreamProxyProtocolStats& stats)
     : PassthroughSocket(std::move(transport_socket)), options_(options), version_(config.version()),
       stats_(stats),
@@ -170,8 +169,9 @@ void UpstreamProxyProtocolSocketFactory::hashKey(
   }
 }
 
-std::unordered_map<uint8_t, std::vector<unsigned char>> UpstreamProxyProtocolSocket::buildCustomTLVs() {
-  std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs;
+absl::flat_hash_map<uint8_t, std::vector<unsigned char>>
+UpstreamProxyProtocolSocket::buildCustomTLVs() {
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs;
 
   const auto& upstream_info = callbacks_->connection().streamInfo().upstreamInfo();
   if (upstream_info == nullptr) {
@@ -187,7 +187,7 @@ std::unordered_map<uint8_t, std::vector<unsigned char>> UpstreamProxyProtocolSoc
   }
 
   const auto filter_it = metadata->typed_filter_metadata().find(
-    Envoy::Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL);
+      Envoy::Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL);
   if (filter_it == metadata->typed_filter_metadata().end()) {
     ENVOY_LOG(trace, "no custom TLVs found in upstream host metadata");
     return custom_tlvs;
@@ -206,7 +206,8 @@ std::unordered_map<uint8_t, std::vector<unsigned char>> UpstreamProxyProtocolSoc
     }
     // prevent empty TLV values
     if (tlv.value().empty()) {
-      ENVOY_LOG(warn, "empty custom TLV value found in upstream host metadata for type {}", tlv.type());
+      ENVOY_LOG(warn, "empty custom TLV value found in upstream host metadata for type {}",
+                tlv.type());
       continue;
     }
     custom_tlvs[tlv.type()] = std::vector<unsigned char>(tlv.value().begin(), tlv.value().end());

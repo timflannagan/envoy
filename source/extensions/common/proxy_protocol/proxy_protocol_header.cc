@@ -112,7 +112,7 @@ void generateV2Header(const Network::Address::Ip& source_address,
 
 bool generateV2Header(const Network::ProxyProtocolData& proxy_proto_data, Buffer::Instance& out,
                       bool pass_all_tlvs, const absl::flat_hash_set<uint8_t>& pass_through_tlvs,
-                      const std::unordered_map<uint8_t, std::vector<unsigned char>>& custom_tlvs) {
+                      const absl::flat_hash_map<uint8_t, std::vector<unsigned char>>& custom_tlvs) {
   std::vector<Envoy::Network::ProxyProtocolTLV> combined_tlv_vector_;
   for (const auto& [type, value] : custom_tlvs) {
     combined_tlv_vector_.push_back({type, {value.begin(), value.end()}});

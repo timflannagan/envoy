@@ -212,14 +212,9 @@ TEST(ProxyProtocolHeaderTest, GeneratesV2WithTLVExceedingLengthLimit) {
 
 TEST(ProxyProtocolHeaderTest, GeneratesV2WithCustomTLVs) {
   const uint8_t v2_protocol[] = {
-      // Base V2 protocol header
-      0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54,
-      0x0a, 0x21, 0x11, 0x00, 0x15, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01,
-      0x01, 0x02, 0x03, 0x05, 0x02, 0x01,
-      // // Custom TLV: Type 0x8, Value 0xD3
-      0x08, 0x00, 0x01, 0x08,
-      // Proxy Protocol TLV: Type 0x5, Length 2, Value 0x06, 0x07
-      0xD3, 0x00, 0x02, 0x06, 0x07,
+      0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a, 0x21,
+      0x11, 0x00, 0x15, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01, 0x01, 0x02, 0x03, 0x05,
+      0x02, 0x01, 0x08, 0x00, 0x01, 0x08, 0xD3, 0x00, 0x02, 0x06, 0x07,
   };
 
   const Buffer::OwnedImpl expectedBuff(v2_protocol, sizeof(v2_protocol));
@@ -229,7 +224,7 @@ TEST(ProxyProtocolHeaderTest, GeneratesV2WithCustomTLVs) {
       Network::Address::InstanceConstSharedPtr(new Network::Address::Ipv4Instance("0.1.1.2", 513));
   Network::ProxyProtocolTLV tlv{0xD3, {0x06, 0x07}};
   Network::ProxyProtocolData proxy_proto_data{src_addr, dst_addr, {tlv}};
-  std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
       {0x8, {0x08}},
   };
   Buffer::OwnedImpl buff{};
@@ -241,14 +236,9 @@ TEST(ProxyProtocolHeaderTest, GeneratesV2WithCustomTLVs) {
 // Verify duplicate custom TLV keys are properly handled.
 TEST(ProxyProtocolHeaderTest, GeneratesV2WithDuplicateCustomTLVKeys) {
   const uint8_t v2_protocol[] = {
-      // Base V2 protocol header
-      0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54,
-      0x0a, 0x21, 0x11, 0x00, 0x15, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01,
-      0x01, 0x02, 0x03, 0x05, 0x02, 0x01,
-      // // Custom TLV: Type 0x8, Value 0xD3
-      0x08, 0x00, 0x01, 0x09,
-      // Proxy Protocol TLV: Type 0x5, Length 2, Value 0x06, 0x07
-      0xD3, 0x00, 0x02, 0x06, 0x07,
+      0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a, 0x21,
+      0x11, 0x00, 0x15, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01, 0x01, 0x02, 0x03, 0x05,
+      0x02, 0x01, 0x08, 0x00, 0x01, 0x09, 0xD3, 0x00, 0x02, 0x06, 0x07,
   };
 
   const Buffer::OwnedImpl expectedBuff(v2_protocol, sizeof(v2_protocol));
@@ -258,7 +248,7 @@ TEST(ProxyProtocolHeaderTest, GeneratesV2WithDuplicateCustomTLVKeys) {
       Network::Address::InstanceConstSharedPtr(new Network::Address::Ipv4Instance("0.1.1.2", 513));
   Network::ProxyProtocolTLV tlv{0xD3, {0x06, 0x07}};
   Network::ProxyProtocolData proxy_proto_data{src_addr, dst_addr, {tlv}};
-  std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
       {0x8, {0x09}},
       {0x8, {0x08}},
   };
@@ -270,12 +260,9 @@ TEST(ProxyProtocolHeaderTest, GeneratesV2WithDuplicateCustomTLVKeys) {
 
 TEST(ProxyProtocolHeaderTest, GeneratesV2WithSharedProxyAndCustomTLVKeys) {
   const uint8_t v2_protocol[] = {
-      // Base V2 protocol header
       0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54,
       0x0a, 0x21, 0x11, 0x00, 0x10, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01,
-      0x01, 0x02, 0x03, 0x05, 0x02, 0x01,
-      // // Custom TLV: Type 0x8, Value 0xD3
-      0xD3, 0x00, 0x01, 0x09,
+      0x01, 0x02, 0x03, 0x05, 0x02, 0x01, 0xD3, 0x00, 0x01, 0x09,
   };
 
   const Buffer::OwnedImpl expectedBuff(v2_protocol, sizeof(v2_protocol));
@@ -285,7 +272,7 @@ TEST(ProxyProtocolHeaderTest, GeneratesV2WithSharedProxyAndCustomTLVKeys) {
       Network::Address::InstanceConstSharedPtr(new Network::Address::Ipv4Instance("0.1.1.2", 513));
   Network::ProxyProtocolTLV tlv{0xD3, {0x06, 0x07}};
   Network::ProxyProtocolData proxy_proto_data{src_addr, dst_addr, {tlv}};
-  std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
       {0xD3, {0x09}},
   };
   Buffer::OwnedImpl buff{};
@@ -302,7 +289,7 @@ TEST(ProxyProtocolHeaderTest, GeneratesV2WithCustomTLVExceedingLengthLimit) {
   Network::ProxyProtocolTLV tlv{0x5, {0x06, 0x07}};
   Network::ProxyProtocolData proxy_proto_data{src_addr, dst_addr, {tlv}};
   Buffer::OwnedImpl buff{};
-  std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
       {0x8, std::vector<unsigned char>(65536, 'a')},
   };
   EXPECT_LOG_CONTAINS("warn", "Generating Proxy Protocol V2 header: TLVs exceed length limit 65535",
@@ -311,12 +298,9 @@ TEST(ProxyProtocolHeaderTest, GeneratesV2WithCustomTLVExceedingLengthLimit) {
 
 TEST(ProxyProtocolHeaderTest, GeneratesV2WithCustomTLVsNoPassthrough) {
   const uint8_t v2_protocol[] = {
-      // Base V2 protocol header
       0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54,
       0x0a, 0x21, 0x11, 0x00, 0x10, 0x01, 0x02, 0x03, 0x04, 0x00, 0x01,
-      0x01, 0x02, 0x03, 0x05, 0x02, 0x01,
-      // // Custom TLV: Type 0x8, Value 0xD3
-      0xD3, 0x00, 0x01, 0x09,
+      0x01, 0x02, 0x03, 0x05, 0x02, 0x01, 0xD3, 0x00, 0x01, 0x09,
   };
 
   const Buffer::OwnedImpl expectedBuff(v2_protocol, sizeof(v2_protocol));
@@ -326,7 +310,7 @@ TEST(ProxyProtocolHeaderTest, GeneratesV2WithCustomTLVsNoPassthrough) {
       Network::Address::InstanceConstSharedPtr(new Network::Address::Ipv4Instance("0.1.1.2", 513));
   Network::ProxyProtocolTLV tlv{0xD5, {0x06, 0x07}};
   Network::ProxyProtocolData proxy_proto_data{src_addr, dst_addr, {tlv}};
-  std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
       {0xD3, {0x09}},
   };
   Buffer::OwnedImpl buff{};

@@ -1,4 +1,6 @@
 #include "envoy/config/core/v3/proxy_protocol.pb.h"
+#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.h"
+#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.validate.h"
 #include "envoy/network/proxy_protocol.h"
 
 #include "source/common/buffer/buffer_impl.h"
@@ -6,9 +8,6 @@
 #include "source/common/network/transport_socket_options_impl.h"
 #include "source/extensions/common/proxy_protocol/proxy_protocol_header.h"
 #include "source/extensions/transport_sockets/proxy_protocol/proxy_protocol.h"
-#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.h"
-#include "envoy/extensions/transport_sockets/proxy_protocol/v3/upstream_proxy_protocol.pb.validate.h"
-
 
 #include "test/mocks/buffer/mocks.h"
 #include "test/mocks/network/io_handle.h"
@@ -533,7 +532,8 @@ TEST_F(ProxyProtocolTest, V2IPV4PassSpecificTLVs) {
       ->setRemoteAddress(*Network::Utility::resolveUrl("tcp://3.3.3.3:80"));
   Buffer::OwnedImpl expected_buff{};
   absl::flat_hash_set<uint8_t> pass_tlvs_set{0x05};
-  Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, false, pass_tlvs_set, {});
+  Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, false, pass_tlvs_set,
+                                          {});
 
   ProxyProtocolConfig config;
   config.set_version(ProxyProtocolConfig_Version::ProxyProtocolConfig_Version_V2);
@@ -573,7 +573,8 @@ TEST_F(ProxyProtocolTest, V2IPV4PassEmptyTLVs) {
       ->setRemoteAddress(*Network::Utility::resolveUrl("tcp://3.3.3.3:80"));
   Buffer::OwnedImpl expected_buff{};
   absl::flat_hash_set<uint8_t> pass_tlvs_set{};
-  Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, false, pass_tlvs_set, {});
+  Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, false, pass_tlvs_set,
+                                          {});
 
   ProxyProtocolConfig config;
   config.set_version(ProxyProtocolConfig_Version::ProxyProtocolConfig_Version_V2);
@@ -641,7 +642,8 @@ TEST_F(ProxyProtocolTest, V2IPV6DownstreamAddressesAndTLVs) {
       ->setRemoteAddress(*Network::Utility::resolveUrl("tcp://[e:b:c:f::]:8080"));
   Buffer::OwnedImpl expected_buff{};
   absl::flat_hash_set<uint8_t> pass_through_tlvs{};
-  Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, true, pass_through_tlvs, {});
+  Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, true, pass_through_tlvs,
+                                          {});
 
   ProxyProtocolConfig config;
   config.set_version(ProxyProtocolConfig_Version::ProxyProtocolConfig_Version_V2);
@@ -679,8 +681,8 @@ TEST_F(ProxyProtocolTest, V2IPV6DownstreamAddressesAndTLVsWithoutPassConfig) {
       ->setRemoteAddress(*Network::Utility::resolveUrl("tcp://[e:b:c:f::]:8080"));
   Buffer::OwnedImpl expected_buff{};
   absl::flat_hash_set<uint8_t> pass_through_tlvs{};
-  Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, false,
-                                          pass_through_tlvs, {});
+  Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, false, pass_through_tlvs,
+                                          {});
 
   ProxyProtocolConfig config;
   config.set_version(ProxyProtocolConfig_Version::ProxyProtocolConfig_Version_V2);
@@ -729,15 +731,14 @@ TEST_F(ProxyProtocolTest, V2CustomTLVsFromHostMetadata) {
   typed_metadata.PackFrom(custom_tlv_metadata);
   metadata->mutable_typed_filter_metadata()->emplace(std::make_pair(metadata_key, typed_metadata));
   EXPECT_CALL(*host, metadata()).Times(testing::AnyNumber()).WillRepeatedly(Return(metadata));
-	transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
+  transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
 
   absl::flat_hash_set<uint8_t> pass_through_tlvs{};
-	std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
-		{0x96, {'m', 'o', 'r', 'e', 'd', 'a', 't', 'a'}}
-  };
-	Buffer::OwnedImpl expected_buff{};
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
+      {0x96, {'m', 'o', 'r', 'e', 'd', 'a', 't', 'a'}}};
+  Buffer::OwnedImpl expected_buff{};
   EXPECT_TRUE(Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, false,
-																											pass_through_tlvs, custom_tlvs));
+                                                      pass_through_tlvs, custom_tlvs));
 
   ProxyProtocolConfig config;
   config.set_version(ProxyProtocolConfig_Version::ProxyProtocolConfig_Version_V2);
@@ -787,19 +788,18 @@ TEST_F(ProxyProtocolTest, V2CustomAndPassthroughTLVs) {
   typed_metadata.PackFrom(custom_tlv_metadata);
   metadata->mutable_typed_filter_metadata()->emplace(std::make_pair(metadata_key, typed_metadata));
   EXPECT_CALL(*host, metadata()).Times(testing::AnyNumber()).WillRepeatedly(Return(metadata));
-	transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
+  transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
 
   absl::flat_hash_set<uint8_t> pass_through_tlvs{0x5};
-	std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
-		{0x96, {'m', 'o', 'r', 'e', 'd', 'a', 't', 'a'}}
-  };
-	Buffer::OwnedImpl expected_buff{};
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
+      {0x96, {'m', 'o', 'r', 'e', 'd', 'a', 't', 'a'}}};
+  Buffer::OwnedImpl expected_buff{};
   EXPECT_TRUE(Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, true,
-																											pass_through_tlvs, custom_tlvs));
+                                                      pass_through_tlvs, custom_tlvs));
 
   ProxyProtocolConfig config;
   config.set_version(ProxyProtocolConfig_Version::ProxyProtocolConfig_Version_V2);
-	config.mutable_pass_through_tlvs()->set_match_type(ProxyProtocolPassThroughTLVs::INCLUDE_ALL);
+  config.mutable_pass_through_tlvs()->set_match_type(ProxyProtocolPassThroughTLVs::INCLUDE_ALL);
   initialize(config, socket_options);
 
   EXPECT_CALL(io_handle_, write(BufferStringEqual(expected_buff.toString())))
@@ -851,19 +851,18 @@ TEST_F(ProxyProtocolTest, V2CustomTLVInvalidMetadata) {
   typed_metadata.PackFrom(custom_tlv_metadata);
   metadata->mutable_typed_filter_metadata()->emplace(std::make_pair(metadata_key, typed_metadata));
   EXPECT_CALL(*host, metadata()).Times(testing::AnyNumber()).WillRepeatedly(Return(metadata));
-	transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
+  transport_callbacks_.connection_.streamInfo().upstreamInfo()->setUpstreamHost(host);
 
   absl::flat_hash_set<uint8_t> pass_through_tlvs{0x5};
-	std::unordered_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
-		{0x96, {'c', 'l', 'u', 's', 't', 'e', 'r', '_', '0'}}
-  };
-	Buffer::OwnedImpl expected_buff{};
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs = {
+      {0x96, {'c', 'l', 'u', 's', 't', 'e', 'r', '_', '0'}}};
+  Buffer::OwnedImpl expected_buff{};
   EXPECT_TRUE(Common::ProxyProtocol::generateV2Header(proxy_proto_data, expected_buff, true,
-																											pass_through_tlvs, custom_tlvs));
+                                                      pass_through_tlvs, custom_tlvs));
 
   ProxyProtocolConfig config;
   config.set_version(ProxyProtocolConfig_Version::ProxyProtocolConfig_Version_V2);
-	config.mutable_pass_through_tlvs()->set_match_type(ProxyProtocolPassThroughTLVs::INCLUDE_ALL);
+  config.mutable_pass_through_tlvs()->set_match_type(ProxyProtocolPassThroughTLVs::INCLUDE_ALL);
   initialize(config, socket_options);
 
   EXPECT_CALL(io_handle_, write(BufferStringEqual(expected_buff.toString())))

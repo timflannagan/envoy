@@ -417,7 +417,7 @@ public:
 
   void setup(bool pass_all_tlvs, const std::vector<uint8_t>& tlvs_listener,
              const std::vector<uint8_t>& tlvs_upstream,
-             const std::unordered_map<uint8_t, std::string>& custom_tlvs) {
+             const absl::flat_hash_map<uint8_t, std::vector<unsigned char>>& custom_tlvs) {
     pass_all_tlvs_ = pass_all_tlvs;
     tlvs_listener_.assign(tlvs_listener.begin(), tlvs_listener.end());
     tlvs_upstream_.assign(tlvs_upstream.begin(), tlvs_upstream.end());
@@ -468,23 +468,26 @@ public:
       // Add custom metadata to the cluster
       if (!custom_tlvs_.empty()) {
         // Modify LB endpoints with metadata
-        auto* metadata = bootstrap.mutable_static_resources()->mutable_clusters(0)
-                                ->mutable_load_assignment()
-                                ->mutable_endpoints(0)
-                                ->mutable_lb_endpoints(0)
-                                ->mutable_metadata();
+        auto* metadata = bootstrap.mutable_static_resources()
+                             ->mutable_clusters(0)
+                             ->mutable_load_assignment()
+                             ->mutable_endpoints(0)
+                             ->mutable_lb_endpoints(0)
+                             ->mutable_metadata();
 
-        envoy::extensions::transport_sockets::proxy_protocol::v3::CustomTlvMetadata custom_tlv_metadata;
+        envoy::extensions::transport_sockets::proxy_protocol::v3::CustomTlvMetadata
+            custom_tlv_metadata;
         for (const auto& [type, value] : custom_tlvs_) {
           auto* tlv_entry = custom_tlv_metadata.add_entries();
           tlv_entry->set_type(type);
-          tlv_entry->set_value(value);
+          tlv_entry->set_value(reinterpret_cast<const uint8_t*>(value.data()), value.size());
         }
         ProtobufWkt::Any typed_metadata;
         typed_metadata.PackFrom(custom_tlv_metadata);
         const std::string metadata_key =
-          Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL;
-        metadata->mutable_typed_filter_metadata()->emplace(std::make_pair(metadata_key, typed_metadata));
+            Config::MetadataFilters::get().ENVOY_TRANSPORT_SOCKETS_PROXY_PROTOCOL;
+        metadata->mutable_typed_filter_metadata()->emplace(
+            std::make_pair(metadata_key, typed_metadata));
       }
 
       envoy::extensions::transport_sockets::proxy_protocol::v3::ProxyProtocolUpstreamTransport
@@ -503,7 +506,7 @@ private:
   bool pass_all_tlvs_ = false;
   std::vector<uint8_t> tlvs_listener_;
   std::vector<uint8_t> tlvs_upstream_;
-  std::unordered_map<uint8_t, std::string> custom_tlvs_;
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs_;
 };
 
 INSTANTIATE_TEST_SUITE_P(IpVersions, ProxyProtocolTLVsIntegrationTest,
@@ -707,7 +710,10 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2ProxyProtocolPassWithTypeLocal) {
 }
 
 TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithCustomMetadata) {
-  setup(false, {}, {}, {{0x96, "foo"}, {0x97, "bar"}});
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs;
+  custom_tlvs[0x96] = {'f', 'o', 'o'};
+  custom_tlvs[0x97] = {'b', 'a', 'r'};
+  setup(false, {}, {}, custom_tlvs);
   initialize();
 
   IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("listener_0"));
@@ -716,14 +722,14 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithCustomMetadat
   if (GetParam() == Envoy::Network::Address::IpVersion::v4) {
     // Expected downstream proxy protocol header (IPv4).
     const uint8_t v2_protocol[] = {
-        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a, 0x21,
-        0x11, 0x00, 0x0c, 0x00, 0x01, 0xc0, 0xa8, 0x00, 0x01, 0xc0, 0xa8, 0x00, 0x02,
-        0x1f, 0x90, 0x23, 0xc4,
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a, 0x21, 0x11, 0x00,
+        0x0c, 0x00, 0x01, 0xc0, 0xa8, 0x00, 0x01, 0xc0, 0xa8, 0x00, 0x02, 0x1f, 0x90, 0x23, 0xc4,
     };
     Buffer::OwnedImpl buffer(v2_protocol, sizeof(v2_protocol));
     ASSERT_TRUE(tcp_client->write(buffer.toString()));
     ASSERT_TRUE(fake_upstreams_[0]->waitForRawConnection(fake_upstream_connection_));
-    ASSERT_TRUE(fake_upstream_connection_->waitForData(42, &observed_data)); // 30 inbound size + 12 for custom TLVs.
+    ASSERT_TRUE(fake_upstream_connection_->waitForData(
+        42, &observed_data)); // 30 inbound size + 12 for custom TLVs.
 
     // Verify the custom TLV was injected from filter metadata.
     EXPECT_EQ(observed_data.size(), 42);
@@ -746,7 +752,8 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithCustomMetadat
     Buffer::OwnedImpl buffer(v2_protocol_ipv6, sizeof(v2_protocol_ipv6));
     ASSERT_TRUE(tcp_client->write(buffer.toString()));
     ASSERT_TRUE(fake_upstreams_[0]->waitForRawConnection(fake_upstream_connection_));
-    ASSERT_TRUE(fake_upstream_connection_->waitForData(64, &observed_data)); // 52 inbound size + 12 for custom TLVs.
+    ASSERT_TRUE(fake_upstream_connection_->waitForData(
+        64, &observed_data)); // 52 inbound size + 12 for custom TLVs.
 
     // Verify the custom TLV was injected from filter metadata.
     EXPECT_EQ(observed_data.size(), 64);
@@ -766,7 +773,10 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithCustomMetadat
 
 TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithPassthroughAndCustomTLVs) {
   // Setup with passthrough TLVs (0x05, 0x06) and custom TLVs (0x96, 0x97).
-  setup(true, {}, {}, {{0x96, "foo"}, {0x97, "bar"}});
+  absl::flat_hash_map<uint8_t, std::vector<unsigned char>> custom_tlvs;
+  custom_tlvs[0x96] = {'f', 'o', 'o'};
+  custom_tlvs[0x97] = {'b', 'a', 'r'};
+  setup(true, {}, {}, custom_tlvs);
   initialize();
 
   IntegrationTcpClientPtr tcp_client = makeTcpConnection(lookupPort("listener_0"));
@@ -776,11 +786,10 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithPassthroughAn
     // 2 TLVs are included:
     // 0x05, 0x00, 0x02, 0x06, 0x07
     // 0x06, 0x00, 0x02, 0x11, 0x12
-    const uint8_t v2_protocol[] = {0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49,
-                                   0x54, 0x0a, 0x21, 0x11, 0x00, 0x16, 0x7f, 0x00, 0x00, 0x01,
-                                   0x7f, 0x00, 0x00, 0x01, 0x03, 0x05, 0x02, 0x01,
-                                   0x05, 0x00, 0x02, 0x06, 0x07, // Passthrough TLV 0x05
-                                   0x06, 0x00, 0x02, 0x11, 0x12, // Passthrough TLV 0x06
+    const uint8_t v2_protocol[] = {
+        0x0d, 0x0a, 0x0d, 0x0a, 0x00, 0x0d, 0x0a, 0x51, 0x55, 0x49, 0x54, 0x0a, 0x21,
+        0x11, 0x00, 0x16, 0x7f, 0x00, 0x00, 0x01, 0x7f, 0x00, 0x00, 0x01, 0x03, 0x05,
+        0x02, 0x01, 0x05, 0x00, 0x02, 0x06, 0x07, 0x06, 0x00, 0x02, 0x11, 0x12,
     };
     Buffer::OwnedImpl buffer(v2_protocol, sizeof(v2_protocol));
     ASSERT_TRUE(tcp_client->write(buffer.toString()));
@@ -825,8 +834,7 @@ TEST_P(ProxyProtocolTLVsIntegrationTest, TestV2TLVProxyProtocolWithPassthroughAn
         0x21, 0x00, 0x2E, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
         0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x00, 0x08, 0x00, 0x02,
-        0x05, 0x00, 0x02, 0x06, 0x07,
-        0x06, 0x00, 0x02, 0x09, 0x0A,
+        0x05, 0x00, 0x02, 0x06, 0x07, 0x06, 0x00, 0x02, 0x09, 0x0A,
     };
     Buffer::OwnedImpl buffer(v2_protocol_ipv6, sizeof(v2_protocol_ipv6));
     ASSERT_TRUE(tcp_client->write(buffer.toString()));
