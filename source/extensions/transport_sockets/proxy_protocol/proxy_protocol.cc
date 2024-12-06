@@ -177,12 +177,10 @@ std::unordered_map<uint8_t, std::vector<unsigned char>> UpstreamProxyProtocolSoc
   if (upstream_info == nullptr) {
     return custom_tlvs;
   }
-
   Upstream::HostDescriptionConstSharedPtr host = upstream_info->upstreamHost();
   if (host == nullptr) {
     return custom_tlvs;
   }
-
   auto metadata = host->metadata();
   if (metadata == nullptr) {
     return custom_tlvs;
@@ -200,8 +198,17 @@ std::unordered_map<uint8_t, std::vector<unsigned char>> UpstreamProxyProtocolSoc
     ENVOY_LOG(warn, "failed to unpack custom TLVs from upstream host metadata");
     return custom_tlvs;
   }
-  // TODO: Prevent empty values from being added to the map? Is that possible with protobuf validation?
   for (const auto& tlv : custom_metadata.entries()) {
+    // prevent duplicate TLVs
+    if (custom_tlvs.find(tlv.type()) != custom_tlvs.end()) {
+      ENVOY_LOG(warn, "duplicate custom TLV type {} found in upstream host metadata", tlv.type());
+      continue;
+    }
+    // prevent empty TLV values
+    if (tlv.value().empty()) {
+      ENVOY_LOG(warn, "empty custom TLV value found in upstream host metadata for type {}", tlv.type());
+      continue;
+    }
     custom_tlvs[tlv.type()] = std::vector<unsigned char>(tlv.value().begin(), tlv.value().end());
   }
 

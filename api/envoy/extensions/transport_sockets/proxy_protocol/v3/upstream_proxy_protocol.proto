@@ -25,9 +25,7 @@ message TlvEntry {
   // type is the type of the TLV. The PP2 protocol expects this type to be a uint8_t.
   uint32 type = 1 [(validate.rules).uint32 = {lt: 256}];
   // value is the value of the TLV.
-  //
-  // TODO(tim): should this be a bytes field instead?
-  string value = 2 [(validate.rules).string = {min_len: 1}];
+  bytes value = 2 [(validate.rules).bytes = {min_len: 1}];
 }
 
 // Configuration for PROXY protocol socket
